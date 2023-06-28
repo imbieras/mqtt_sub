@@ -1,0 +1,72 @@
+#!/bin/sh /etc/rc.common
+
+APP=/usr/sbin/mqtt_sub
+USE_PROCD=1
+
+setup_config() {
+  config_load mqtt_sub
+  config_get enabled "mqtt_sub" 'enabled' '0'
+  config_get host "mqtt_sub" 'host' ''
+  config_get port "mqtt_sub" 'port' ''
+  config_get username "mqtt_sub" 'username' ''
+  config_get password "mqtt_sub" 'password' ''
+  config_get psk "mqtt_sub" 'psk' ''
+  config_get psk_identity "mqtt_sub" 'psk_identity' ''
+  config_get cafile "mqtt_sub" '_device_certfile' ''
+  config_get certfile "mqtt_sub" 'certfile' ''
+  config_get keyfile "mqtt_sub" 'keyfile' ''
+}
+
+start_service() {
+  setup_config
+	if [ "$enabled" == "1" ]; then
+		procd_open_instance
+		procd_set_param command $APP
+    procd_append_param command "-a"
+
+    if [ -n "$host" ]; then
+        procd_append_param command "-h $host"
+    fi
+
+    if [ -n "$port" ]; then
+        procd_append_param command "-p $port"
+    fi
+
+    if [ -n "$username" ]; then
+        procd_append_param command "-u $username"
+    fi
+
+    if [ -n "$password" ]; then
+        procd_append_param command "-P $password"
+    fi
+
+    if [ -n "$psk" ]; then
+      if [ -n "$certfile" -o -n "$keyfile" ]; then
+        echo "Error: Cannot use both PSK and certificates."
+        exit 1
+      fi
+      procd_append_param command "-s" "$psk"
+      procd_append_param command "-i" "$psk_identity"
+    elif [ -n "$certfile" ]; then
+      procd_append_param command "-c" "$certfile"
+      procd_append_param command "-k" "$keyfile"
+    fi
+
+    if [ -n "$cafile" ]; then
+      procd_append_param command "-C $cafile"
+    fi
+		
+    procd_set_param respawn ${respawn_threshold:-0} ${respawn_timeout:-60} ${respawn_retry:-0}
+	  procd_close_instance
+  fi
+}
+
+service_triggers() {
+	procd_add_reload_trigger "mqtt_sub"
+}
+
+reload_service()
+{
+  stop
+  start
+}
