@@ -21,8 +21,8 @@ struct upload_status {
   size_t bytes_read;
 };
 
-void form_payload_text(const char *recipient, const char *sender,
-                       const char *subject, const char *message);
+void form_payload_text(const char *sender, const char *subject,
+                       const char *message);
 static size_t payload_source(char *ptr, size_t size, size_t nmemb, void *userp);
 void curl_set_sender_data(CURL *curl, struct sender_info info);
 int send_email(

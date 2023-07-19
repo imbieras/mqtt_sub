@@ -1,13 +1,36 @@
-#include <sqlite3.h>
+#include "sqlite_helper.h"
+#include "helper.h"
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <syslog.h>
 
 int sqlite_init(const char *db_file, sqlite3 **db) {
-  int rc = sqlite3_open_v2(db_file, db,
-                           SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+
+  if (!file_exists(db_file)) {
+    char dir[PATH_MAX];
+    strncpy(dir, db_file, sizeof(dir));
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+      *slash = '\0';
+      struct stat st;
+      if (stat(dir, &st) == -1) {
+        if (mkdir(dir, 0700) == -1) {
+          syslog(LOG_ERR, "Failed to create directory: %s", dir);
+          return SQLITE_CANTOPEN;
+        }
+      }
+    }
+
+    if (!create_empty_file(db_file)) {
+      syslog(LOG_ERR, "Failed to create database file: %s", db_file);
+      return SQLITE_CANTOPEN;
+    }
+  }
+
+  int rc = sqlite3_open_v2(db_file, db, SQLITE_OPEN_READWRITE, NULL);
   if (rc != SQLITE_OK) {
-    syslog(LOG_ERR, "Failed to open or create database: %s",
-           sqlite3_errmsg(*db));
+    syslog(LOG_ERR, "Failed to open database: %s", sqlite3_errmsg(*db));
     return rc;
   }
 

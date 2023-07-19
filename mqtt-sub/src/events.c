@@ -55,6 +55,7 @@ int compare_strings(const char *val1, const char *val2, int comparison_type) {
   case CMP_NOTEQ:
     return cmp != 0;
   }
+  syslog(LOG_WARNING, "Not supported comparison between strings");
   return -1;
 }
 
@@ -93,7 +94,7 @@ int check_and_send_events(const char *payload, const char *topic) {
   struct event events[EVENT_CAP];
   json_object *obj = json_tokener_parse(payload);
   if (obj == NULL) {
-    syslog(LOG_ERR, "Failed to parse JSON payload");
+    syslog(LOG_WARNING, "Failed to parse JSON payload");
     return events_sent;
   }
 
@@ -127,13 +128,13 @@ int check_and_send_events(const char *payload, const char *topic) {
 
       char message[BUFFER_SIZE];
       snprintf(message, sizeof(message),
-               "Event triggered:\r\nTopic: %s\r\nKey: %s\r\nComparison "
-               "value: "
-               "%s\r\nReal value: %s\r\nComparison "
-               "type: %s\r\n",
+               "An event has been triggered with the following data:\r\nTopic "
+               "- %s\r\nKey - %s\r\nComparison "
+               "value -  "
+               "%s\r\nReal value - %s\r\nComparison "
+               "type - %s\r\n",
                events[i].topic.name, events[i].key, events[i].value,
                key_value_str, events[i].comparison_type);
-      syslog(LOG_INFO, "%s", message);
 
       int email_res =
           send_email(events[i].sender_email, events[i].recipient_emails,

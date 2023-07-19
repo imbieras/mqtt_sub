@@ -177,15 +177,39 @@ int mqtt_main(struct arguments arguments) {
   struct mosquitto *mosq = NULL;
 
   int rc = MOSQ_ERR_SUCCESS;
+  int mqtt_init_rc = MOSQ_ERR_SUCCESS;
+  int sqlite_init_rc = SQLITE_OK;
 
   signal(SIGINT, signal_handler);
   signal(SIGTERM, signal_handler);
 
   openlog("mqtt_sub", LOG_PID, LOG_DAEMON);
 
-  uci_init();
-  mqtt_init(&mosq, arguments);
-  sqlite_init(SQLITE_DATABASE_PATH, &db);
+  rc = uci_init();
+  if (rc != UCI_OK) {
+    closelog();
+    return rc;
+  }
+
+  mqtt_init_rc = mqtt_init(&mosq, arguments);
+  if (mqtt_init_rc != MOSQ_ERR_SUCCESS) {
+    syslog(LOG_ERR, "Failed to initialize MQTT: %s",
+           mosquitto_strerror(mqtt_init_rc));
+    uci_deinit();
+    mosquitto_lib_cleanup();
+    closelog();
+    return mqtt_init_rc;
+  }
+
+  sqlite_init_rc = sqlite_init(SQLITE_DATABASE_PATH, &db);
+  if (sqlite_init_rc != SQLITE_OK) {
+    syslog(LOG_ERR, "Failed to initialize SQLite: %s",
+           sqlite3_errstr(sqlite_init_rc));
+    uci_deinit();
+    mosquitto_lib_cleanup();
+    closelog();
+    return sqlite_init_rc;
+  }
 
   syslog(LOG_INFO, "Trying to establish connection to: %s:%d", arguments.host,
          arguments.port);
@@ -193,7 +217,8 @@ int mqtt_main(struct arguments arguments) {
   if (rc != MOSQ_ERR_SUCCESS) {
     syslog(LOG_ERR, "Failed to connect to MQTT broker: %s\n",
            mosquitto_strerror(rc));
-    mosquitto_destroy(mosq);
+    sqlite_deinit(db);
+    uci_deinit();
     mosquitto_lib_cleanup();
     closelog();
     return rc;
@@ -216,5 +241,5 @@ int mqtt_main(struct arguments arguments) {
 
   closelog();
 
-  return rc;
+  return MOSQ_ERR_SUCCESS;
 }

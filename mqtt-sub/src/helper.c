@@ -99,3 +99,21 @@ void daemonize() {
   close(STDOUT_FILENO);
   close(STDERR_FILENO);
 }
+
+int file_exists(const char *filename) {
+  FILE *file = fopen(filename, "r");
+  if (file) {
+    fclose(file);
+    return 1;
+  }
+  return 0;
+}
+
+int create_empty_file(const char *filename) {
+  FILE *file = fopen(filename, "w");
+  if (file) {
+    fclose(file);
+    return 1;
+  }
+  return 0;
+}

@@ -4,8 +4,8 @@ APP=/usr/sbin/mqtt_sub
 USE_PROCD=1
 
 setup_config() {
-  config_load mqtt_sub
-  config_get enabled "mqtt_sub" 'enabled' '0'
+	config_load mqtt_sub
+	config_get enabled "mqtt_sub" 'enabled' '0'
   config_get host "mqtt_sub" 'host' ''
   config_get port "mqtt_sub" 'port' ''
   config_get username "mqtt_sub" 'username' ''
@@ -18,7 +18,7 @@ setup_config() {
 }
 
 start_service() {
-  setup_config
+	setup_config
 	if [ "$enabled" == "1" ]; then
 		procd_open_instance
 		procd_set_param command $APP
@@ -57,8 +57,8 @@ start_service() {
     fi
 		
     procd_set_param respawn ${respawn_threshold:-0} ${respawn_timeout:-60} ${respawn_retry:-0}
-	  procd_close_instance
-  fi
+		procd_close_instance
+	fi
 }
 
 service_triggers() {

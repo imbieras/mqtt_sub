@@ -9,8 +9,20 @@
 
 char payload_text[BUFFER_SIZE];
 
-void form_payload_text(const char *recipient_email, const char *sender_email,
-                       const char *subject, const char *message) {
+void log_payload_to_syslog(const char *payload_text) {
+  char payload_copy[BUFFER_SIZE];
+  strncpy(payload_copy, payload_text, BUFFER_SIZE);
+  payload_copy[BUFFER_SIZE - 1] = '\0'; // Ensure null-termination
+
+  char *line = strtok(payload_copy, "\n");
+  while (line != NULL) {
+    syslog(LOG_INFO, "%s", line);
+    line = strtok(NULL, "\n");
+  }
+}
+
+void form_payload_text(const char *sender_email, const char *subject,
+                       const char *message) {
   time_t current_time = time(NULL);
 
   struct tm *timeinfo = localtime(&current_time);
@@ -20,12 +32,12 @@ void form_payload_text(const char *recipient_email, const char *sender_email,
 
   snprintf(payload_text, BUFFER_SIZE,
            "Date: %s\r\n"
-           "To: <%s>\r\n"
-           "From: <%s>\r\n"
+           "To: %s\r\n"
+           "From: RUTX Router <%s>\r\n"
            "Subject: %s\r\n"
            "\r\n" // empty line to divide headers from body, see RFC5322
            "%s\r\n",
-           date_buffer, recipient_email, sender_email, subject, message);
+           date_buffer, "RUTX User", sender_email, subject, message);
 }
 
 static size_t payload_source(char *ptr, size_t size, size_t nmemb,
@@ -57,11 +69,10 @@ void curl_set_sender_data(CURL *curl, struct sender_info info) {
   if (info.credentials) {
     curl_easy_setopt(curl, CURLOPT_USERNAME, info.username);
     curl_easy_setopt(curl, CURLOPT_PASSWORD, info.password);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, MAIL_CACERT_PATH);
     curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
   }
   char url[BUFFER_SIZE];
-  sprintf(url, "%s:%d", info.server, info.port);
+  sprintf(url, "smtp://%s:%d", info.server, info.port);
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_MAIL_FROM, info.sender_email);
 }
@@ -70,12 +81,19 @@ int send_email(
     const char *sender_email,
     char recipient_emails[MAIL_MAX_RECIPIENTS][MAIL_FIELD_LENGTH_MAX],
     int recipient_count, const char *subject, const char *message) {
-  struct upload_status upload_ctx;
-  CURL *curl = curl_easy_init();
-  CURLcode res;
+  CURL *curl;
+  CURLcode res = CURLE_OK;
+  struct curl_slist *recipients = NULL;
+  struct upload_status upload_ctx = {0};
+
+  char msg_content[BUFFER_SIZE];
 
   struct sender_info sender_info;
   get_sender_info(&sender_info, sender_email);
+
+  if (strcmp(sender_info.sender_email, sender_email) != 0) {
+    return EXIT_FAILURE;
+  }
 
   syslog(LOG_INFO,
          "Sender info: server: %s:%d, credentials: %d, username: "
@@ -83,29 +101,33 @@ int send_email(
          sender_info.server, sender_info.port, sender_info.credentials,
          sender_info.username, sender_info.sender_email);
 
+  curl = curl_easy_init();
+
   if (curl) {
     curl_easy_setopt(curl, CURLOPT_MAIL_FROM, sender_email);
     curl_set_sender_data(curl, sender_info);
 
+    form_payload_text(sender_email, subject, message);
+
+    log_payload_to_syslog(payload_text);
+
     for (int i = 0; i < recipient_count; i++) {
-      form_payload_text(recipient_emails[i], sender_email, subject, message);
-      syslog(LOG_INFO, "Trying to send to recipient %s: message: %s",
-             recipient_emails[i], message);
-      upload_ctx.bytes_read = 0;
+      recipients = curl_slist_append(recipients, recipient_emails[i]);
+    }
+    curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+    curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
+    curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
-      curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipient_emails[i]);
-      curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
-      curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
-      curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-      curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
-
-      res = curl_easy_perform(curl);
-      if (res != CURLE_OK) {
-        syslog(LOG_ERR, "Failed to send email to recipient %s: %s",
-               recipient_emails[i], curl_easy_strerror(res));
-      }
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+      syslog(LOG_ERR, "curl_easy_perform() failed: %s\n",
+             curl_easy_strerror(res));
     }
 
+    curl_slist_free_all(recipients);
     curl_easy_cleanup(curl);
   } else {
     syslog(LOG_ERR, "Failed to initialize curl");

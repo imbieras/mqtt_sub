@@ -3,7 +3,7 @@
 
 #include <sqlite3.h>
 
-#define SQLITE_DATABASE_PATH "/var/mqtt_sub/logs.db"
+#define SQLITE_DATABASE_PATH "/log/mqtt_sub.db"
 
 int sqlite_init(const char *db_file, sqlite3 **db);
 int sqlite_insert(sqlite3 *db, const char *payload, const char *topic);

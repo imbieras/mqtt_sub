@@ -253,9 +253,10 @@ int get_sender_info(struct sender_info *sender_info, const char *sender_email) {
   uci_unload(ctx, package);
 
   if (!found) {
-    syslog(
-        LOG_ERR,
-        "Could not find specified sender email account in user_groups config");
+    syslog(LOG_ERR,
+           "Could not find specified sender email account '%s' in user_groups "
+           "config",
+           sender_email);
     rc = UCI_ERR_NOTFOUND;
   }
 

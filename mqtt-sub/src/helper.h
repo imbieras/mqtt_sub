@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #define BUFFER_SIZE 1024
+#define PATH_MAX 4096
 
 static char doc[] = "A simple MQTT subscriber daemon program";
 
@@ -37,5 +38,7 @@ struct arguments {
 void signal_handler(int signal);
 error_t parse_opt(int key, char *arg, struct argp_state *state);
 void daemonize();
+int file_exists(const char *filename);
+int create_empty_file(const char *filename);
 
 #endif // HELPER_H
