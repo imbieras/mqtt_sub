@@ -86,8 +86,6 @@ int send_email(
   struct curl_slist *recipients = NULL;
   struct upload_status upload_ctx = {0};
 
-  char msg_content[BUFFER_SIZE];
-
   struct sender_info sender_info;
   get_sender_info(&sender_info, sender_email);
 

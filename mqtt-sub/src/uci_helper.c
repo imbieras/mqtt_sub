@@ -138,8 +138,6 @@ int get_event(struct uci_section *section, struct event *event) {
                   sizeof(event->recipient_emails[0]));
           event->recipient_emails[count][sizeof(event->recipient_emails[0]) -
                                          1] = '\0';
-          syslog(LOG_INFO, "Added recipient email: %s",
-                 event->recipient_emails[count]);
           count++;
         }
         event->recipient_count = count;
@@ -261,4 +259,117 @@ int get_sender_info(struct sender_info *sender_info, const char *sender_email) {
   }
 
   return rc;
+}
+
+int find_next_topic_index(struct uci_package *pkg) {
+  int index = 0;
+  struct uci_element *element;
+  uci_foreach_element(&pkg->sections, element) {
+    struct uci_section *s = uci_to_section(element);
+    const char *type = uci_lookup_option_string(ctx, s, "type");
+    if (type && strcmp(type, "topic") == 0) {
+      index++;
+    }
+  }
+  return index;
+}
+
+int insert_topic_to_mqtt_sub(int client_socket, const char *json_str) {
+  struct uci_package *package;
+  int rc;
+
+  struct json_object *json_obj = json_tokener_parse(json_str);
+  if (!json_obj) {
+    syslog(LOG_ERR, "Failed to parse JSON");
+    return -1;
+  }
+
+  struct topic new_topic;
+  memset(&new_topic, 0, sizeof(struct topic));
+
+  json_object_object_foreach(json_obj, key, val) {
+    if (strcmp(key, "name") == 0) {
+      const char *name = json_object_get_string(val);
+      strncpy(new_topic.name, name, MQTT_TOPIC_LENGTH - 1);
+      new_topic.name[EVENT_FIELD_LENGTH_MAX - 1] = '\0';
+    } else if (strcmp(key, "qos") == 0) {
+      new_topic.qos = json_object_get_int(val);
+    }
+  }
+
+  rc = uci_load_package(&package, "mqtt_sub");
+  if (rc != UCI_OK) {
+    syslog(LOG_ERR, "Failed to load UCI package");
+    return -1;
+  }
+
+  char qos_str[2];
+  sprintf(qos_str, "%d", new_topic.qos);
+
+  uci_unload(ctx, package);
+  return 0;
+}
+
+int insert_event_to_mqtt_sub(int client_socket, const char *json_str) {
+  struct uci_package *package;
+  int rc;
+
+  struct json_object *json_obj = json_tokener_parse(json_str);
+  if (!json_obj) {
+    syslog(LOG_ERR, "Failed to parse JSON");
+    return -1;
+  }
+
+  struct event new_event;
+  memset(&new_event, 0, sizeof(struct event));
+
+  json_object_object_foreach(json_obj, key, val) {
+    if (strcmp(key, "topic") == 0) {
+      const char *topic_name = json_object_get_string(val);
+      strcpy(new_event.topic.name, topic_name);
+    } else if (strcmp(key, "key") == 0) {
+      const char *key_val = json_object_get_string(val);
+      strncpy(new_event.key, key_val, EVENT_FIELD_LENGTH_MAX - 1);
+      new_event.key[EVENT_FIELD_LENGTH_MAX - 1] = '\0';
+    } else if (strcmp(key, "value_type") == 0) {
+      const char *value_type_val = json_object_get_string(val);
+      strncpy(new_event.value_type, value_type_val, EVENT_FIELD_LENGTH_MAX - 1);
+      new_event.value_type[EVENT_FIELD_LENGTH_MAX - 1] = '\0';
+    } else if (strcmp(key, "comparison_type") == 0) {
+      const char *comparison_type_val = json_object_get_string(val);
+      strncpy(new_event.comparison_type, comparison_type_val, 2);
+      new_event.comparison_type[2] = '\0';
+    } else if (strcmp(key, "value") == 0) {
+      const char *value_val = json_object_get_string(val);
+      strncpy(new_event.value, value_val, 63);
+      new_event.value[63] = '\0';
+    } else if (strcmp(key, "sender_email") == 0) {
+      const char *sender_email_val = json_object_get_string(val);
+      strncpy(new_event.sender_email, sender_email_val,
+              MAIL_FIELD_LENGTH_MAX - 1);
+      new_event.sender_email[MAIL_FIELD_LENGTH_MAX - 1] = '\0';
+    } else if (strcmp(key, "recipient_emails") == 0) {
+      int array_len = json_object_array_length(val);
+      new_event.recipient_count =
+          (array_len > MAIL_MAX_RECIPIENTS) ? MAIL_MAX_RECIPIENTS : array_len;
+
+      for (int i = 0; i < new_event.recipient_count; i++) {
+        struct json_object *item = json_object_array_get_idx(val, i);
+        const char *recipient_email = json_object_get_string(item);
+        strncpy(new_event.recipient_emails[i], recipient_email,
+                MAIL_FIELD_LENGTH_MAX - 1);
+        new_event.recipient_emails[i][MAIL_FIELD_LENGTH_MAX - 1] = '\0';
+      }
+    }
+  }
+
+  rc = uci_load_package(&package, "mqtt_sub");
+  if (rc != UCI_OK) {
+    syslog(LOG_ERR, "Failed to load UCI package");
+    uci_deinit();
+    return -1;
+  }
+
+  uci_unload(ctx, package);
+  return 0;
 }

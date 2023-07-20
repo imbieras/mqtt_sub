@@ -19,5 +19,7 @@ int get_all_topics(struct topic *topics);
 int get_event(struct uci_section *section, struct event *event);
 int get_all_topic_events(struct event *events, const char *topic);
 int get_sender_info(struct sender_info *sender_info, const char *sender_email);
+int insert_topic_to_mqtt_sub(int client_socket, const char *json_str);
+int insert_event_to_mqtt_sub(int client_socket, const char *json_str);
 
 #endif // UCI_HELPER_H

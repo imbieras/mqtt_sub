@@ -6,26 +6,9 @@
 #include <syslog.h>
 
 int sqlite_init(const char *db_file, sqlite3 **db) {
-
-  if (!file_exists(db_file)) {
-    char dir[PATH_MAX];
-    strncpy(dir, db_file, sizeof(dir));
-    char *slash = strrchr(dir, '/');
-    if (slash) {
-      *slash = '\0';
-      struct stat st;
-      if (stat(dir, &st) == -1) {
-        if (mkdir(dir, 0700) == -1) {
-          syslog(LOG_ERR, "Failed to create directory: %s", dir);
-          return SQLITE_CANTOPEN;
-        }
-      }
-    }
-
-    if (!create_empty_file(db_file)) {
-      syslog(LOG_ERR, "Failed to create database file: %s", db_file);
-      return SQLITE_CANTOPEN;
-    }
+  if (create_file_if_not_exists(db_file) != EXIT_SUCCESS) {
+    syslog(LOG_ERR, "Error creating database file: %s", db_file);
+    return SQLITE_CANTOPEN;
   }
 
   int rc = sqlite3_open_v2(db_file, db, SQLITE_OPEN_READWRITE, NULL);

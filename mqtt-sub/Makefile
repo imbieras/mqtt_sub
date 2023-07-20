@@ -11,7 +11,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/mqtt_sub
 	CATEGORY:=Utilities
 	TITLE:=mqtt_sub
-	DEPENDS:= +libmosquitto +libuci +libcurl +libjson-c +libsqlite3 
+	DEPENDS:= +libmosquitto +libuci +libcurl +libjson-c +libsqlite3 +mqtt_sub_ctl 
 endef
 
 define Package/mqtt_sub/description

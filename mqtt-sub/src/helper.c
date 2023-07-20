@@ -1,5 +1,8 @@
 #include "helper.h"
+#include "pthread.h"
+#include "sock_helper.h"
 #include <argp.h>
+#include <pthread.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -15,11 +18,18 @@
 const char *argp_program_version = "mqtt_sub 0.1";
 error_t argp_err_exit_status = 1;
 extern bool stop_loop;
+extern pthread_t connection_thread;
+extern struct server_data server;
 
 void signal_handler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
     syslog(LOG_WARNING, "Signal received. Stopping.");
     stop_loop = true;
+
+    pthread_cancel(connection_thread);
+    pthread_join(connection_thread, NULL);
+
+    deinit_server_socket(&server);
   }
 }
 
@@ -104,16 +114,41 @@ int file_exists(const char *filename) {
   FILE *file = fopen(filename, "r");
   if (file) {
     fclose(file);
-    return 1;
+    return EXIT_SUCCESS;
   }
-  return 0;
+  return EXIT_FAILURE;
 }
 
 int create_empty_file(const char *filename) {
   FILE *file = fopen(filename, "w");
   if (file) {
     fclose(file);
-    return 1;
+    return EXIT_SUCCESS;
   }
-  return 0;
+  return EXIT_FAILURE;
+}
+
+int create_file_if_not_exists(const char *file_path) {
+  if (file_exists(file_path) != EXIT_SUCCESS) {
+    char dir[PATH_MAX];
+    strncpy(dir, file_path, sizeof(dir));
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+      *slash = '\0';
+      struct stat st;
+      if (stat(dir, &st) == -1) {
+        if (mkdir(dir, 0700) == -1) {
+          syslog(LOG_ERR, "Failed to create directory: %s", slash);
+          return EXIT_FAILURE;
+        }
+      }
+    }
+  }
+
+  if (create_empty_file(file_path) != EXIT_SUCCESS) {
+    syslog(LOG_ERR, "Failed to create file: %s", file_path);
+    return EXIT_FAILURE;
+  }
+
+  return EXIT_SUCCESS;
 }

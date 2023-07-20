@@ -1,10 +1,12 @@
 #include "mqtt_helper.h"
 #include "events.h"
 #include "helper.h"
+#include "sock_helper.h"
 #include "sqlite_helper.h"
 #include "uci_helper.h"
 #include <argp.h>
 #include <mosquitto.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -14,7 +16,17 @@
 #include <unistd.h>
 
 bool stop_loop = false;
+struct server_data server;
+pthread_t connection_thread;
 sqlite3 *db;
+bool cached_events_for_topics = false;
+
+struct data data = {
+    .topics = {0},
+    .topic_count = 0,
+    .events = {0},
+    .event_counts = {0},
+};
 
 int subscribe_topic(struct mosquitto *mosq, struct topic topic) {
   int rc = mosquitto_subscribe(mosq, NULL, topic.name, topic.qos);
@@ -26,15 +38,27 @@ int subscribe_topic(struct mosquitto *mosq, struct topic topic) {
 
 int subscribe_all_topics(struct mosquitto *mosq) {
   int subscribe_count = 0;
-  struct topic topics[MQTT_TOPIC_CAP];
-  int topic_count = get_all_topics(topics);
-  if (topic_count < 0)
-    return topic_count;
 
-  for (int i = 0; i < topic_count; i++) {
-    if (subscribe_topic(mosq, topics[i]) == MOSQ_ERR_SUCCESS) {
+  data.topic_count = get_all_topics(data.topics);
+  if (data.topic_count < 0)
+    return data.topic_count;
+
+  if (!cached_events_for_topics) {
+    for (int i = 0; i < data.topic_count; i++) {
+      int tmp_event_count =
+          get_all_topic_events(data.events[i], data.topics[i].name);
+      if (tmp_event_count >= 0) {
+        data.event_counts[i] = tmp_event_count;
+      }
+    }
+
+    cached_events_for_topics = true;
+  }
+
+  for (int i = 0; i < data.topic_count; i++) {
+    if (subscribe_topic(mosq, data.topics[i]) == MOSQ_ERR_SUCCESS) {
       subscribe_count++;
-      syslog(LOG_INFO, "Subscribed to topic: %s", topics[i].name);
+      syslog(LOG_INFO, "Subscribed to topic: %s", data.topics[i].name);
     }
   }
 
@@ -175,7 +199,6 @@ int mqtt_attempt_reconnect(struct mosquitto *mosq) {
 
 int mqtt_main(struct arguments arguments) {
   struct mosquitto *mosq = NULL;
-
   int rc = MOSQ_ERR_SUCCESS;
   int mqtt_init_rc = MOSQ_ERR_SUCCESS;
   int sqlite_init_rc = SQLITE_OK;
@@ -229,10 +252,19 @@ int mqtt_main(struct arguments arguments) {
     syslog(LOG_INFO, "Daemon started");
   }
 
+  init_server_socket(&server);
+  server.subscriber_data = &data;
+
+  if (pthread_create(&connection_thread, NULL, handle_connection, &server) !=
+      0) {
+    syslog(LOG_ERR, "pthread_create %m");
+    deinit_server_socket(&server);
+    exit(EXIT_FAILURE);
+  }
+
   mqtt_loop(mosq);
 
   sqlite_deinit(db);
-
   mosquitto_disconnect(mosq);
   mosquitto_destroy(mosq);
   mosquitto_lib_cleanup();

@@ -40,5 +40,6 @@ error_t parse_opt(int key, char *arg, struct argp_state *state);
 void daemonize();
 int file_exists(const char *filename);
 int create_empty_file(const char *filename);
+int create_file_if_not_exists(const char *filename);
 
 #endif // HELPER_H
