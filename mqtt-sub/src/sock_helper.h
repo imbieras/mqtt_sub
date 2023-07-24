@@ -6,9 +6,9 @@
 
 struct data {
   struct topic topics[MQTT_TOPIC_CAP];
-  int topic_count;
+  size_t topic_count;
   struct event events[MQTT_TOPIC_CAP][EVENT_CAP];
-  int event_counts[MQTT_TOPIC_CAP];
+  size_t event_counts[MQTT_TOPIC_CAP];
 };
 
 struct server_data {
@@ -17,9 +17,6 @@ struct server_data {
 };
 
 void send_response(int client_socket, const char *response);
-void return_all_topics(int client_socket, struct data *subscriber_data);
-void return_events_for_topic(int client_socket, struct data *subscriber_data,
-                             const char *topic_name);
 void handle_controller_request(int client_socket, struct data *subscriber_data);
 void *handle_connection(void *arg);
 void init_server_socket(struct server_data *server);

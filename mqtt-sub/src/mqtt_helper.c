@@ -15,11 +15,11 @@
 #include <uci.h>
 #include <unistd.h>
 
+struct mosquitto *mosq = NULL;
 bool stop_loop = false;
 struct server_data server;
 pthread_t connection_thread;
 sqlite3 *db;
-bool cached_events_for_topics = false;
 
 struct data data = {
     .topics = {0},
@@ -28,7 +28,7 @@ struct data data = {
     .event_counts = {0},
 };
 
-int subscribe_topic(struct mosquitto *mosq, struct topic topic) {
+static int subscribe_topic(struct topic topic) {
   int rc = mosquitto_subscribe(mosq, NULL, topic.name, topic.qos);
   if (rc != MOSQ_ERR_SUCCESS)
     syslog(LOG_ERR, "Failed subscription: %s, %s", topic.name,
@@ -36,27 +36,29 @@ int subscribe_topic(struct mosquitto *mosq, struct topic topic) {
   return rc;
 }
 
-int subscribe_all_topics(struct mosquitto *mosq) {
-  int subscribe_count = 0;
+int cache_topic_events() {
+  for (size_t i = 0; i < data.topic_count; i++) {
+    size_t tmp_event_count =
+        get_all_topic_events(data.events[i], data.topics[i].name);
+    if (tmp_event_count >= 0) {
+      data.event_counts[i] = tmp_event_count;
+    }
+  }
+
+  return EXIT_SUCCESS;
+}
+
+size_t subscribe_all_topics() {
+  size_t subscribe_count = 0;
 
   data.topic_count = get_all_topics(data.topics);
   if (data.topic_count < 0)
     return data.topic_count;
 
-  if (!cached_events_for_topics) {
-    for (int i = 0; i < data.topic_count; i++) {
-      int tmp_event_count =
-          get_all_topic_events(data.events[i], data.topics[i].name);
-      if (tmp_event_count >= 0) {
-        data.event_counts[i] = tmp_event_count;
-      }
-    }
+  cache_topic_events();
 
-    cached_events_for_topics = true;
-  }
-
-  for (int i = 0; i < data.topic_count; i++) {
-    if (subscribe_topic(mosq, data.topics[i]) == MOSQ_ERR_SUCCESS) {
+  for (size_t i = 0; i < data.topic_count; i++) {
+    if (subscribe_topic(data.topics[i]) == MOSQ_ERR_SUCCESS) {
       subscribe_count++;
       syslog(LOG_INFO, "Subscribed to topic: %s", data.topics[i].name);
     }
@@ -74,7 +76,7 @@ void on_connect(struct mosquitto *mosq, void *obj, int reason_code) {
     return;
   }
 
-  rc = subscribe_all_topics(mosq);
+  rc = subscribe_all_topics();
   if (rc < 1) {
     syslog(LOG_ERR, "No topics subscribed: %s", mosquitto_strerror(rc));
     stop_loop = true;
@@ -91,11 +93,11 @@ void on_message(struct mosquitto *mosq, void *obj,
 
   syslog(LOG_INFO, "At time: %s, received payload: %s, on topic: %s",
          date_buffer, (char *)msg->payload, msg->topic);
-  int ret = check_and_send_events((char *)msg->payload, msg->topic);
+  check_and_send_events((char *)msg->payload, msg->topic);
   sqlite_insert(db, msg->payload, msg->topic);
 }
 
-int mqtt_init_login(struct mosquitto *mosq, struct arguments arguments) {
+static int mqtt_init_login(struct arguments arguments) {
   int rc = MOSQ_ERR_SUCCESS;
   if (!arguments.username && !arguments.password)
     return rc;
@@ -106,7 +108,7 @@ int mqtt_init_login(struct mosquitto *mosq, struct arguments arguments) {
   return rc;
 }
 
-int mqtt_init_tls(struct mosquitto *mosq, struct arguments arguments) {
+static int mqtt_init_tls(struct arguments arguments) {
   int rc = MOSQ_ERR_SUCCESS;
 
   if (arguments.cafile != NULL) {
@@ -130,55 +132,7 @@ int mqtt_init_tls(struct mosquitto *mosq, struct arguments arguments) {
   return rc;
 }
 
-int mqtt_init(struct mosquitto **mosq, struct arguments arguments) {
-  int rc = MOSQ_ERR_SUCCESS;
-
-  if ((rc = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
-    syslog(LOG_ERR, "Failed to initialize mosquitto library: %s",
-           mosquitto_strerror(rc));
-    return rc;
-  }
-
-  *mosq = mosquitto_new(NULL, true, &arguments);
-
-  if (*mosq == NULL) {
-    syslog(LOG_ERR, "Failed to create mosquitto instance.");
-    return MOSQ_ERR_UNKNOWN;
-  }
-
-  if ((rc = mqtt_init_login(*mosq, arguments)) != MOSQ_ERR_SUCCESS)
-    return rc;
-
-  if ((rc = mqtt_init_tls(*mosq, arguments)) != MOSQ_ERR_SUCCESS)
-    return rc;
-
-  mosquitto_connect_callback_set(*mosq, on_connect);
-  mosquitto_message_callback_set(*mosq, on_message);
-
-  syslog(LOG_INFO, "Initialized succesfully");
-  return rc;
-}
-
-int mqtt_loop(struct mosquitto *mosq) {
-  int rc = MOSQ_ERR_SUCCESS;
-  while (!stop_loop) {
-    rc = mosquitto_loop(mosq, -1, 1);
-    switch (rc) {
-    case MOSQ_ERR_CONN_LOST:
-      syslog(LOG_ERR, "Connection to MQTT broker lost.");
-      break;
-    case MOSQ_ERR_NO_CONN:
-      if (mqtt_attempt_reconnect(mosq) != MOSQ_ERR_SUCCESS)
-        syslog(LOG_ERR, "Failed to reconnect to MQTT broker.");
-      break;
-    default:
-      break;
-    }
-  }
-  return rc;
-}
-
-int mqtt_attempt_reconnect(struct mosquitto *mosq) {
+static int mqtt_attempt_reconnect() {
   int rc = MOSQ_ERR_SUCCESS;
   int reconnect_attempts = 0;
 
@@ -197,8 +151,55 @@ int mqtt_attempt_reconnect(struct mosquitto *mosq) {
   return rc;
 }
 
+static int mqtt_init(struct arguments arguments) {
+  int rc = MOSQ_ERR_SUCCESS;
+
+  if ((rc = mosquitto_lib_init()) != MOSQ_ERR_SUCCESS) {
+    syslog(LOG_ERR, "Failed to initialize mosquitto library: %s",
+           mosquitto_strerror(rc));
+    return rc;
+  }
+
+  mosq = mosquitto_new(NULL, true, &arguments);
+
+  if (mosq == NULL) {
+    syslog(LOG_ERR, "Failed to create mosquitto instance.");
+    return MOSQ_ERR_UNKNOWN;
+  }
+
+  if ((rc = mqtt_init_login(arguments)) != MOSQ_ERR_SUCCESS)
+    return rc;
+
+  if ((rc = mqtt_init_tls(arguments)) != MOSQ_ERR_SUCCESS)
+    return rc;
+
+  mosquitto_connect_callback_set(mosq, on_connect);
+  mosquitto_message_callback_set(mosq, on_message);
+
+  syslog(LOG_INFO, "Initialized succesfully");
+  return rc;
+}
+
+static int mqtt_loop() {
+  int rc = MOSQ_ERR_SUCCESS;
+  while (!stop_loop) {
+    rc = mosquitto_loop(mosq, -1, 1);
+    switch (rc) {
+    case MOSQ_ERR_CONN_LOST:
+      syslog(LOG_ERR, "Connection to MQTT broker lost.");
+      break;
+    case MOSQ_ERR_NO_CONN:
+      if (mqtt_attempt_reconnect() != MOSQ_ERR_SUCCESS)
+        syslog(LOG_ERR, "Failed to reconnect to MQTT broker.");
+      break;
+    default:
+      break;
+    }
+  }
+  return rc;
+}
+
 int mqtt_main(struct arguments arguments) {
-  struct mosquitto *mosq = NULL;
   int rc = MOSQ_ERR_SUCCESS;
   int mqtt_init_rc = MOSQ_ERR_SUCCESS;
   int sqlite_init_rc = SQLITE_OK;
@@ -214,7 +215,7 @@ int mqtt_main(struct arguments arguments) {
     return rc;
   }
 
-  mqtt_init_rc = mqtt_init(&mosq, arguments);
+  mqtt_init_rc = mqtt_init(arguments);
   if (mqtt_init_rc != MOSQ_ERR_SUCCESS) {
     syslog(LOG_ERR, "Failed to initialize MQTT: %s",
            mosquitto_strerror(mqtt_init_rc));
@@ -262,7 +263,7 @@ int mqtt_main(struct arguments arguments) {
     exit(EXIT_FAILURE);
   }
 
-  mqtt_loop(mosq);
+  mqtt_loop();
 
   sqlite_deinit(db);
   mosquitto_disconnect(mosq);

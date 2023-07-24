@@ -1,5 +1,6 @@
 #include "sock_helper.h"
 #include "helper.h"
+#include "mqtt_helper.h"
 #include "uci_helper.h"
 #include <errno.h>
 #include <pthread.h>
@@ -16,32 +17,34 @@
 
 const char sockname[] = "/tmp/sub_socket";
 extern bool stop_loop;
+extern struct data data;
 
 void send_response(int client_socket, const char *response) {
   write(client_socket, response, strlen(response));
 }
 
-void return_all_topics(int client_socket, struct data *subscriber_data) {
+static void return_all_topics(int client_socket, struct data *subscriber_data) {
   char response[4 * BUFFER_SIZE] = {0};
   int response_len = 0;
 
-  for (int i = 0; i < subscriber_data->topic_count; ++i) {
+  for (size_t i = 0; i < subscriber_data->topic_count; ++i) {
     response_len += snprintf(
         response + response_len, sizeof(response) - response_len,
-        "Topic %d: %s (QoS %d)\n", i + 1, subscriber_data->topics[i].name,
+        "Topic %ld: %s (QoS %d)\n", i + 1, subscriber_data->topics[i].name,
         subscriber_data->topics[i].qos);
   }
 
   send_response(client_socket, response);
 }
 
-void return_events_for_topic(int client_socket, struct data *subscriber_data,
-                             const char *topic_name) {
+static void return_events_for_topic(int client_socket,
+                                    struct data *subscriber_data,
+                                    const char *topic_name) {
   char response[4 * BUFFER_SIZE] = {0};
-  int response_len = 0;
+  size_t response_len = 0;
   int topic_index = -1;
 
-  for (int i = 0; i < subscriber_data->topic_count; ++i) {
+  for (size_t i = 0; i < subscriber_data->topic_count; ++i) {
     if (strcmp(subscriber_data->topics[i].name, topic_name) == 0) {
       topic_index = i;
       break;
@@ -53,13 +56,18 @@ void return_events_for_topic(int client_socket, struct data *subscriber_data,
     return;
   }
 
-  for (int i = 0; i < subscriber_data->event_counts[topic_index]; ++i) {
+  if (subscriber_data->event_counts[topic_index] == 0) {
+    send_response(client_socket, "No events for topic.\n");
+    return;
+  }
+
+  for (size_t i = 0; i < subscriber_data->event_counts[topic_index]; ++i) {
     struct event *current_event = &subscriber_data->events[topic_index][i];
 
     response_len +=
         snprintf(response + response_len, sizeof(response) - response_len,
-                 "#%d Event:\r\nTopic - %s\r\nKey - %s\r\nComparison value - "
-                 "%s\r\nComparison type - %s\r\n\r\n",
+                 "#%ld Event:\nTopic - %s\nKey - %s\nComparison value - "
+                 "%s\nComparison type - %s\n\n",
                  i + 1, current_event->topic.name, current_event->key,
                  current_event->value, current_event->comparison_type);
   }
@@ -84,9 +92,11 @@ void handle_controller_request(int client_socket,
   } else if (strncmp(buffer, "return_events_for_topic:", 24) == 0) {
     return_events_for_topic(client_socket, subscriber_data, buffer + 24);
   } else if (strncmp(buffer, "add_new_topic:", 14) == 0) {
-    insert_topic_to_mqtt_sub(client_socket, buffer + 14);
+    if (insert_topic_to_mqtt_sub(client_socket, buffer + 14) == UCI_OK)
+      subscribe_all_topics();
   } else if (strncmp(buffer, "add_new_event:", 14) == 0) {
-    insert_event_to_mqtt_sub(client_socket, buffer + 14);
+    if (insert_event_to_mqtt_sub(client_socket, buffer + 14) == UCI_OK)
+      cache_topic_events();
   } else {
     send_response(client_socket, "Invalid request.");
   }

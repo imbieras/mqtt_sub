@@ -9,10 +9,10 @@
 
 char payload_text[BUFFER_SIZE];
 
-void log_payload_to_syslog(const char *payload_text) {
+static void log_payload_to_syslog(const char *payload_text) {
   char payload_copy[BUFFER_SIZE];
   strncpy(payload_copy, payload_text, BUFFER_SIZE);
-  payload_copy[BUFFER_SIZE - 1] = '\0'; // Ensure null-termination
+  payload_copy[BUFFER_SIZE - 1] = '\0';
 
   char *line = strtok(payload_copy, "\n");
   while (line != NULL) {
@@ -21,8 +21,8 @@ void log_payload_to_syslog(const char *payload_text) {
   }
 }
 
-void form_payload_text(const char *sender_email, const char *subject,
-                       const char *message) {
+static void form_payload_text(const char *sender_email, const char *subject,
+                              const char *message) {
   time_t current_time = time(NULL);
 
   struct tm *timeinfo = localtime(&current_time);
@@ -65,7 +65,7 @@ static size_t payload_source(char *ptr, size_t size, size_t nmemb,
   return 0;
 }
 
-void curl_set_sender_data(CURL *curl, struct sender_info info) {
+static void curl_set_sender_data(CURL *curl, struct sender_info info) {
   if (info.credentials) {
     curl_easy_setopt(curl, CURLOPT_USERNAME, info.username);
     curl_easy_setopt(curl, CURLOPT_PASSWORD, info.password);
@@ -109,13 +109,13 @@ int send_email(
 
     log_payload_to_syslog(payload_text);
 
-    for (int i = 0; i < recipient_count; i++) {
+    for (size_t i = 0; i < recipient_count; i++) {
       recipients = curl_slist_append(recipients, recipient_emails[i]);
     }
     curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
     curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 

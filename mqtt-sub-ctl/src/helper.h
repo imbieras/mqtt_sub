@@ -15,6 +15,5 @@ static struct argp_option options[] = {{"topic", 't', 0, 0},
                                        {0}};
 
 error_t parse_opt(int key, char *arg, struct argp_state *state);
-int file_exists(const char *filename);
 
 #endif // HELPER_H

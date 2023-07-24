@@ -110,7 +110,7 @@ void daemonize() {
   close(STDERR_FILENO);
 }
 
-int file_exists(const char *filename) {
+static int file_exists(const char *filename) {
   FILE *file = fopen(filename, "r");
   if (file) {
     fclose(file);
@@ -119,7 +119,7 @@ int file_exists(const char *filename) {
   return EXIT_FAILURE;
 }
 
-int create_empty_file(const char *filename) {
+static int create_empty_file(const char *filename) {
   FILE *file = fopen(filename, "w");
   if (file) {
     fclose(file);

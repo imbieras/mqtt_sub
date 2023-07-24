@@ -10,7 +10,7 @@
 #include <sys/syslog.h>
 #include <syslog.h>
 
-int get_comparison_type(const char *operator_str) {
+static int get_comparison_type(const char *operator_str) {
   if (strcmp(operator_str, "<") == 0) {
     return CMP_LESS;
   } else if (strcmp(operator_str, ">") == 0) {
@@ -29,7 +29,7 @@ int get_comparison_type(const char *operator_str) {
   return CMP_EQ;
 }
 
-int compare_numbers(int val1, int val2, int comparison_type) {
+static int compare_numbers(int val1, int val2, int comparison_type) {
   switch (comparison_type) {
   case CMP_LESS:
     return val1 < val2;
@@ -47,7 +47,8 @@ int compare_numbers(int val1, int val2, int comparison_type) {
   return -1;
 }
 
-int compare_strings(const char *val1, const char *val2, int comparison_type) {
+static int compare_strings(const char *val1, const char *val2,
+                           int comparison_type) {
   int cmp = strcmp(val1, val2);
   switch (comparison_type) {
   case CMP_EQ:
@@ -59,8 +60,8 @@ int compare_strings(const char *val1, const char *val2, int comparison_type) {
   return -1;
 }
 
-int compare_values(const char *val1, const char *val2, const char *value_type,
-                   int comparison_type) {
+static int compare_values(const char *val1, const char *val2,
+                          const char *value_type, int comparison_type) {
   if (strncmp(value_type, "decimal", sizeof("decimal")) == 0) {
     int int_val1 = atoi(val1);
     int int_val2 = atoi(val2);
@@ -71,7 +72,7 @@ int compare_values(const char *val1, const char *val2, const char *value_type,
   return -1;
 }
 
-json_object *find_by_key(json_object *obj, char *key) {
+static json_object *find_by_key(json_object *obj, char *key) {
   if (!obj || json_object_get_type(obj) != json_type_object || !key)
     return NULL;
 
@@ -88,8 +89,8 @@ json_object *find_by_key(json_object *obj, char *key) {
   return NULL;
 }
 
-int check_and_send_events(const char *payload, const char *topic) {
-  int events_sent = 0;
+size_t check_and_send_events(const char *payload, const char *topic) {
+  size_t events_sent = 0;
 
   struct event events[EVENT_CAP];
   json_object *obj = json_tokener_parse(payload);
@@ -105,9 +106,9 @@ int check_and_send_events(const char *payload, const char *topic) {
     return events_sent;
   }
 
-  int count = get_all_topic_events(events, topic);
+  size_t count = get_all_topic_events(events, topic);
 
-  for (int i = 0; i < count; i++) {
+  for (size_t i = 0; i < count; i++) {
     json_object *key_value = find_by_key(data, events[i].key);
     if (key_value == NULL) {
       syslog(LOG_ERR, "Failed to find key '%s' in JSON payload", events[i].key);

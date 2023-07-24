@@ -13,16 +13,11 @@ struct topic {
   int qos;
 };
 
-int subscribe_topic(struct mosquitto *mosq, struct topic topic);
-int subscribe_all_topics(struct mosquitto *mosq);
+int cache_topic_events();
+size_t subscribe_all_topics();
 void on_connect(struct mosquitto *mosq, void *obj, int reason_code);
 void on_message(struct mosquitto *mosq, void *obj,
                 const struct mosquitto_message *msg);
-int mqtt_init_login(struct mosquitto *mosq, struct arguments arguments);
-int mqtt_init_tls(struct mosquitto *mosq, struct arguments arguments);
-int mqtt_init(struct mosquitto **mosq, struct arguments arguments);
-int mqtt_loop(struct mosquitto *mosq);
-int mqtt_attempt_reconnect(struct mosquitto *mosq);
 int mqtt_main(struct arguments arguments);
 
 #endif // MQTT_HELPER_H

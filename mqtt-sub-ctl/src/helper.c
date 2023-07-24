@@ -43,12 +43,3 @@ error_t parse_opt(int key, char *arg, struct argp_state *state) {
   }
   return 0;
 }
-
-int file_exists(const char *filename) {
-  FILE *file = fopen(filename, "r");
-  if (file) {
-    fclose(file);
-    return EXIT_SUCCESS;
-  }
-  return EXIT_FAILURE;
-}
